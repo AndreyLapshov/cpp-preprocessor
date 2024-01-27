@@ -5,6 +5,7 @@
 #include <regex>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace std;
@@ -14,14 +15,67 @@ path operator""_p(const char* data, std::size_t sz) {
     return path(data, data + sz);
 }
 
+bool FindIncludes(const path& path_file, size_t line_number, const path& in_file, const path& out_file, const vector<path>& include_directories);
+
 // напишите эту функцию
-bool Preprocess(const path& in_file, const path& out_file, const vector<path>& include_directories);
+bool Preprocess(const path& in_file, const path& out_file, const vector<path>& include_directories) {
+    static regex include_file(R"/(\s*#\s*include\s*"([^ "]*)"\s*)/");
+    static regex include_lib(R"/(\s*#\s*include\s*<([^>]*)>\s*)/");
+    smatch m;
+    string line;
+    size_t line_number = 0;
+    ifstream in(in_file);
+    ofstream out(out_file, ios::out | ios::app);
+
+    while (getline(in, line)) {
+        ++line_number;
+        if (regex_match(line, m, include_file)) {
+            path path_file = string(m[1]);
+            path full_path = in_file.parent_path() / path_file;
+            ifstream reader_file;
+            reader_file.open(full_path);
+            if (reader_file.is_open()) {
+                Preprocess(full_path, out_file, include_directories);
+                reader_file.close();
+            }
+            else {
+                bool found = FindIncludes(path_file, line_number, in_file, out_file, include_directories);
+                if (!found) return false;
+            }
+        }
+        else if (regex_match(line, m, include_lib)) {
+            path path_file = string(m[1]);
+            bool found = FindIncludes(path_file, line_number, in_file, out_file, include_directories);
+            if (!found) return false;
+        }
+        else {
+            out << line << endl;
+        }
+    }
+
+    return true;
+}
+
+bool FindIncludes(const path& path_file, size_t line_number, const path& in_file, const path& out_file, const vector<path>& include_directories) {
+    bool found = false;
+    for (const auto& file : include_directories) {
+        if (exists(path(file / path_file))) {
+            found = true;
+            Preprocess(file / path_file, out_file, include_directories);
+            break;
+        }
+    }
+    if (!found) {
+        cout << "unknown include file "s << path_file.filename().string() << " at file "s << in_file.string() << " at line "s << line_number << endl;
+    }
+    return found;
+}
 
 string GetFileContents(string file) {
     ifstream stream(file);
 
     // конструируем string по двум итераторам
-    return {(istreambuf_iterator<char>(stream)), istreambuf_iterator<char>()};
+    return { (istreambuf_iterator<char>(stream)), istreambuf_iterator<char>() };
 }
 
 void Test() {
